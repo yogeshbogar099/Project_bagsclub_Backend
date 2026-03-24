@@ -1,0 +1,51 @@
+const ROLES = {
+    SUPER_ADMIN: 'SUPER_ADMIN',
+    ADMIN: 'ADMIN',
+    ASSOCIATE_MEMBER: 'ASSOCIATE_MEMBER'
+};
+
+const PERMISSIONS = {
+    VIEW_DASHBOARD: 'can_view_dashboard',
+    MANAGE_USERS: 'can_manage_users',
+    EDIT_SETTINGS: 'can_edit_settings',
+    VIEW_REPORTS: 'can_view_reports',
+    PLACE_ORDER: 'can_place_order',
+    ADD_MONEY: 'can_add_money',
+    MANAGE_ORDERS: 'can_manage_orders',
+    VIEW_ALL_TRANSACTIONS: 'can_view_all_transactions',
+    MANAGE_ROLES: 'can_manage_roles'
+};
+
+const ROLE_PERMISSIONS = {
+    [ROLES.SUPER_ADMIN]: [
+        PERMISSIONS.VIEW_DASHBOARD,
+        PERMISSIONS.MANAGE_USERS,
+        PERMISSIONS.EDIT_SETTINGS,
+        PERMISSIONS.VIEW_REPORTS,
+        PERMISSIONS.PLACE_ORDER,
+        PERMISSIONS.ADD_MONEY,
+        PERMISSIONS.MANAGE_ORDERS,
+        PERMISSIONS.VIEW_ALL_TRANSACTIONS,
+        PERMISSIONS.MANAGE_ROLES
+    ],
+    [ROLES.ADMIN]: [
+        PERMISSIONS.VIEW_DASHBOARD,
+        PERMISSIONS.MANAGE_USERS,
+        PERMISSIONS.VIEW_REPORTS,
+        PERMISSIONS.MANAGE_ORDERS,
+        PERMISSIONS.VIEW_ALL_TRANSACTIONS
+    ],
+    [ROLES.ASSOCIATE_MEMBER]: [
+        PERMISSIONS.VIEW_DASHBOARD,
+        PERMISSIONS.VIEW_REPORTS,
+        PERMISSIONS.EDIT_SETTINGS,
+        PERMISSIONS.PLACE_ORDER,
+        PERMISSIONS.ADD_MONEY
+    ]
+};
+
+module.exports = {
+    ROLES,
+    PERMISSIONS,
+    ROLE_PERMISSIONS
+};
