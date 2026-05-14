@@ -7,17 +7,27 @@ const orderSchema = mongoose.Schema({
         ref: 'User'
     },
     orderId: { type: String, required: true, unique: true },
+    orderType: { type: String }, // One Side, Both Side
+    quantity: { type: Number },
     bagCategory: { type: String, required: true }, // e.g., Non-Woven, Paper
     bagName: { type: String, required: true },
     bagSize: { type: String, required: true },
-    bagColorType: { type: String, required: true },
+    bagColor: { type: String },
+    textColors: [String],
+    colorType: { type: String },
+    privacy: { type: Boolean, default: false },
+    fileOption: { type: String }, // upload, email
+    email: { type: String },
+    fileUrl: { type: String },
+    applicableCost: { type: Number },
+    gst: { type: Number },
+    totalAmount: { type: Number },
+    remark: { type: String },
     status: {
         type: String,
-        enum: ['Pending', 'Printing', 'Packaging', 'Dispatched', 'Completed'],
-        default: 'Pending'
+        enum: ['Pending', 'Confirmed', 'Printing', 'Packaging', 'Dispatched', 'Completed'],
+        default: 'Confirmed'
     },
-    fileName: { type: String },
-    fileUrl: { type: String },
     memberId: { type: String }
 }, { timestamps: true });
 

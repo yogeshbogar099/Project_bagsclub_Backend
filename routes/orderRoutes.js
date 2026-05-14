@@ -18,9 +18,10 @@ router.route('/')
 
 router.get('/recent', protect, getRecentOrders);
 router.get('/search/:orderId', protect, searchOrderByOrderId);
-router.get('/:id', protect, getOrderById);
-
+// IMPORTANT: keep static/admin routes BEFORE "/:id" to avoid "/all" being treated as an id
 router.get('/all', protect, checkCapability(PERMISSIONS.MANAGE_ORDERS), getAllOrders);
 router.put('/:id/status', protect, checkCapability(PERMISSIONS.MANAGE_ORDERS), updateOrderStatus);
+
+router.get('/:id', protect, getOrderById);
 
 module.exports = router;

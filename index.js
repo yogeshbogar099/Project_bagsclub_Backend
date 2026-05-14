@@ -13,6 +13,7 @@ const authRoutes = require('./routes/authRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const userRoutes = require('./routes/userRoutes');
+const pricingRoutes = require('./routes/pricingRoutes');
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/pricing', pricingRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is running...');

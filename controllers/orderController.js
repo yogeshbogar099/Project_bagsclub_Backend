@@ -5,6 +5,35 @@ const User = require('../models/User');
 
 const ORDER_COST = 10; // Fixed cost per order
 
+const ensureDbReady = (res) => {
+    if (mongoose.connection.readyState === 1) return true;
+    res.status(503).json({ message: 'Database unavailable' });
+    return false;
+};
+
+const handleOrderError = (res, error) => {
+    if (error?.code === 11000) {
+        return res.status(409).json({ message: 'Duplicate key error' });
+    }
+    if (error?.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map(val => val.message);
+        return res.status(400).json({ message: messages.join(', ') });
+    }
+    if (error?.name === 'CastError') {
+        return res.status(400).json({ message: 'Invalid input format' });
+    }
+    const msg = String(error?.message || '');
+    if (msg.includes('buffering timed out') || msg.includes('Server selection timed out')) {
+        return res.status(503).json({ message: 'Database unavailable' });
+    }
+    const safeMessage = msg && msg.length <= 200 ? msg : 'Server Error';
+    return res.status(500).json({ 
+        message: safeMessage,
+        code: 'ORDER_SERVER_ERROR',
+        error: process.env.NODE_ENV === 'production' ? null : msg 
+    });
+};
+
 const createOrderWithoutTransaction = async ({ userId, fileName, fileUrl }) => {
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found');
@@ -37,70 +66,133 @@ const createOrderWithoutTransaction = async ({ userId, fileName, fileUrl }) => {
 // @route   POST /api/orders
 // @access  Private
 const createOrder = async (req, res) => {
-    const { fileName, fileUrl } = req.body;
+    if (!ensureDbReady(res)) return;
 
-    if (!fileName || !fileUrl) {
-        res.status(400).json({ message: 'Please provide file name and URL' });
-        return;
+    const { 
+        orderType, 
+        bagType, // Support both names from different client pages
+        quantity, 
+        bagSize, 
+        bagColor, 
+        textColors, 
+        colorType, 
+        privacy, 
+        fileOption, 
+        email, 
+        fileUrl, 
+        applicableCost, 
+        gst, 
+        totalAmount, 
+        remark,
+        category, // Support dynamic category (legacy)
+        type,     // Support dynamic bag name (legacy)
+        bagCategory, // Support newer client field names
+        bagName      // Support newer client field names
+    } = req.body;
+
+    // Normalize side selection (One side / Both sides)
+    const finalOrderType = orderType || bagType;
+    
+    // Normalize bag details
+    const finalBagCategory = category || bagCategory || 'Non-Woven Bag';
+    const finalBagName = type || bagName || 'D-Cut Bag';
+
+    const quantityNum = Number(quantity);
+    const applicableCostNum = Number(applicableCost);
+    const gstNum = Number(gst);
+    const totalAmountNum = Number(totalAmount);
+
+    if (!finalOrderType || !bagSize || !Number.isFinite(quantityNum) || !Number.isFinite(totalAmountNum)) {
+        return res.status(400).json({ message: 'Missing required order fields' });
+    }
+    if (quantityNum <= 0 || totalAmountNum <= 0) {
+        return res.status(400).json({ message: 'Invalid order values' });
     }
 
     try {
-        const session = await mongoose.startSession();
-        try {
-            await session.withTransaction(async () => {
-                const user = await User.findById(req.user._id).session(session);
-                if (!user) throw new Error('User not found');
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
 
-                const currentBalance = Number(user.walletBalance || 0);
-                if (currentBalance < ORDER_COST) throw new Error('Insufficient funds');
-
-                user.walletBalance = currentBalance - ORDER_COST;
-                await user.save({ session });
-
-                await Transaction.create([{
-                    user: user._id,
-                    amount: ORDER_COST,
-                    type: 'Debit',
-                    status: 'Success',
-                    reference: `ORD-${Date.now()}`,
-                    description: `Payment for Order: ${fileName}`
-                }], { session });
-
-                await Order.create([{
-                    user: user._id,
-                    fileName,
-                    fileUrl,
-                    memberId: user.memberId,
-                    status: 'Pending'
-                }], { session });
+        const currentWallet = Number(user.walletBalance);
+        if (!Number.isFinite(currentWallet)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid wallet balance. Please contact support.'
             });
-        } finally {
-            await session.endSession();
         }
 
-        res.status(201).json({ message: 'Order created and paid successfully' });
-    } catch (error) {
-        const message = String(error?.message || '');
-        const needsFallback = message.includes('Transaction numbers are only allowed') || message.includes('replica set');
+        if (Number(user.walletBalance || 0) < totalAmountNum) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Insufficient wallet balance" 
+            });
+        }
 
-        if (needsFallback) {
-            try {
-                await createOrderWithoutTransaction({ userId: req.user._id, fileName, fileUrl });
-                return res.status(201).json({ message: 'Order created and paid successfully' });
-            } catch (fallbackError) {
-                const fallbackMessage = String(fallbackError?.message || '');
-                if (fallbackMessage === 'Insufficient funds') {
-                    return res.status(400).json({ message: 'Insufficient funds. Please add money to your wallet.' });
-                }
-                return res.status(500).json({ message: 'Server Error' });
+        let orderId;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const candidate = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const exists = await Order.exists({ orderId: candidate });
+            if (!exists) {
+                orderId = candidate;
+                break;
             }
         }
-
-        if (message === 'Insufficient funds') {
-            return res.status(400).json({ message: 'Insufficient funds. Please add money to your wallet.' });
+        if (!orderId) {
+            return res.status(503).json({ message: 'Unable to generate order id' });
         }
 
-        res.status(500).json({ message: 'Server Error' });
+        // Use a session if possible, but keeping it simple for now based on existing codebase pattern
+        user.walletBalance = Number(user.walletBalance || 0) - totalAmountNum;
+        await user.save();
+
+        await Transaction.create({
+            user: user._id,
+            amount: totalAmountNum,
+            type: 'Debit',
+            status: 'Success',
+            reference: orderId,
+            description: `Payment for Order: ${finalBagName} (${finalOrderType})`
+        });
+
+        // Normalize privacy to boolean (client may send boolean or strings like "Required")
+        const privacyBool =
+            privacy === true ||
+            privacy === 'true' ||
+            privacy === 1 ||
+            privacy === '1' ||
+            privacy === 'Required';
+
+        const order = await Order.create({
+            user: user._id,
+            orderId,
+            orderType: finalOrderType,
+            quantity: quantityNum,
+            bagCategory: finalBagCategory,
+            bagName: finalBagName,
+            bagSize,
+            bagColor,
+            textColors,
+            colorType,
+            privacy: privacyBool,
+            fileOption,
+            email,
+            fileUrl,
+            applicableCost: Number.isFinite(applicableCostNum) ? applicableCostNum : undefined,
+            gst: Number.isFinite(gstNum) ? gstNum : undefined,
+            totalAmount: totalAmountNum,
+            remark,
+            status: 'Confirmed',
+            memberId: user.memberId
+        });
+
+        res.status(201).json({ 
+            success: true,
+            message: 'Order created and paid successfully',
+            order 
+        });
+    } catch (error) {
+        console.error('Order creation error:', error);
+        return handleOrderError(res, error);
     }
 };
 
@@ -108,6 +200,7 @@ const createOrder = async (req, res) => {
 // @route   GET /api/orders
 // @access  Private
 const getOrders = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     try {
         const orders = await Order.find({ user: req.user._id })
             .sort({ createdAt: -1 })
@@ -115,7 +208,7 @@ const getOrders = async (req, res) => {
         res.json(orders);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
@@ -123,6 +216,7 @@ const getOrders = async (req, res) => {
 // @route   GET /api/orders/all
 // @access  Private (Admin)
 const getAllOrders = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     try {
         const orders = await Order.find({})
             .sort({ createdAt: -1 })
@@ -130,7 +224,7 @@ const getAllOrders = async (req, res) => {
         res.json(orders);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
@@ -138,10 +232,12 @@ const getAllOrders = async (req, res) => {
 // @route   PUT /api/orders/:id/status
 // @access  Private (Admin)
 const updateOrderStatus = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     const { id } = req.params;
     const { status } = req.body;
     
-    const validStatuses = ['Pending', 'Printing Completed', 'Improper', 'Dispatched'];
+    // Must match Order schema enum to avoid 500s from runValidators
+    const validStatuses = ['Pending', 'Confirmed', 'Printing', 'Packaging', 'Dispatched', 'Completed'];
 
     if (!validStatuses.includes(status)) {
         return res.status(400).json({ message: 'Invalid status' });
@@ -158,39 +254,45 @@ const updateOrderStatus = async (req, res) => {
         res.json({ message: 'Order status updated', status: order.status });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
 const getRecentOrders = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     try {
         const orders = await Order.find({ user: req.user._id })
             .sort({ createdAt: -1 })
             .limit(10);
         res.json(orders);
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
 const getOrderById = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: 'Invalid order id' });
+        }
         const order = await Order.findOne({ _id: req.params.id, user: req.user._id });
         if (!order) return res.status(404).json({ message: 'Order not found' });
         res.json(order);
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
 const searchOrderByOrderId = async (req, res) => {
+    if (!ensureDbReady(res)) return;
     try {
         const { orderId } = req.params;
         const order = await Order.findOne({ orderId, user: req.user._id });
         if (!order) return res.status(404).json({ message: 'Order not found' });
         res.json(order);
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        return handleOrderError(res, error);
     }
 };
 
