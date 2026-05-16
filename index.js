@@ -27,6 +27,7 @@ connectDB();
 
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
     origin: true,
@@ -47,6 +48,8 @@ app.get('/api/health', (req, res) => {
         database: states[dbState] || 'unknown'
     });
 });
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/user', userRoutes);

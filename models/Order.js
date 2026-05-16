@@ -7,6 +7,7 @@ const orderSchema = mongoose.Schema({
         ref: 'User'
     },
     orderId: { type: String, required: true, unique: true },
+    orderName: { type: String },
     orderType: { type: String }, // One Side, Both Side
     quantity: { type: Number },
     bagCategory: { type: String, required: true }, // e.g., Non-Woven, Paper
@@ -16,9 +17,11 @@ const orderSchema = mongoose.Schema({
     textColors: [String],
     colorType: { type: String },
     privacy: { type: Boolean, default: false },
+    deliveryOption: { type: String },
     fileOption: { type: String }, // upload, email
     email: { type: String },
     fileUrl: { type: String },
+    fileName: { type: String },
     applicableCost: { type: Number },
     gst: { type: Number },
     totalAmount: { type: Number },

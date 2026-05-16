@@ -68,7 +68,22 @@ const createOrderWithoutTransaction = async ({ userId, fileName, fileUrl }) => {
 const createOrder = async (req, res) => {
     if (!ensureDbReady(res)) return;
 
+    // Safety check for req.body
+    if (!req.body || Object.keys(req.body).length === 0) {
+        // If req.body is empty, it might be because of a parsing error (e.g. multipart boundary missing)
+        // or the client sent an empty request.
+        console.error('Order creation failed: req.body is empty or undefined.', {
+            headers: req.headers,
+            hasFile: !!req.file
+        });
+        return res.status(400).json({ 
+            success: false,
+            message: 'Request body is missing or could not be parsed. Ensure you are sending valid form data or JSON.' 
+        });
+    }
+
     const { 
+        orderName,
         orderType, 
         bagType, // Support both names from different client pages
         quantity, 
@@ -77,9 +92,11 @@ const createOrder = async (req, res) => {
         textColors, 
         colorType, 
         privacy, 
+        deliveryOption,
         fileOption, 
         email, 
         fileUrl, 
+        fileName,
         applicableCost, 
         gst, 
         totalAmount, 
@@ -89,6 +106,24 @@ const createOrder = async (req, res) => {
         bagCategory, // Support newer client field names
         bagName      // Support newer client field names
     } = req.body;
+
+    // Handle file upload
+    let finalFileUrl = fileUrl;
+    let finalFileName = fileName;
+    if (req.file) {
+        finalFileUrl = `/uploads/${req.file.filename}`;
+        finalFileName = req.file.originalname;
+    }
+
+    // Handle textColors (multipart might send string)
+    let finalTextColors = textColors;
+    if (typeof textColors === 'string' && textColors) {
+        try {
+            finalTextColors = JSON.parse(textColors);
+        } catch (e) {
+            finalTextColors = textColors.split(',').map(c => c.trim());
+        }
+    }
 
     // Normalize side selection (One side / Both sides)
     const finalOrderType = orderType || bagType;
@@ -165,18 +200,21 @@ const createOrder = async (req, res) => {
         const order = await Order.create({
             user: user._id,
             orderId,
+            orderName,
             orderType: finalOrderType,
             quantity: quantityNum,
             bagCategory: finalBagCategory,
             bagName: finalBagName,
             bagSize,
             bagColor,
-            textColors,
+            textColors: finalTextColors,
             colorType,
             privacy: privacyBool,
+            deliveryOption,
             fileOption,
             email,
-            fileUrl,
+            fileUrl: finalFileUrl,
+            fileName: finalFileName,
             applicableCost: Number.isFinite(applicableCostNum) ? applicableCostNum : undefined,
             gst: Number.isFinite(gstNum) ? gstNum : undefined,
             totalAmount: totalAmountNum,
@@ -188,7 +226,8 @@ const createOrder = async (req, res) => {
         res.status(201).json({ 
             success: true,
             message: 'Order created and paid successfully',
-            order 
+            order,
+            walletBalance: user.walletBalance
         });
     } catch (error) {
         console.error('Order creation error:', error);

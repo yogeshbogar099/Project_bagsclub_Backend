@@ -11,9 +11,10 @@ const {
 } = require('../controllers/orderController');
 const { protect, checkCapability } = require('../middleware/authMiddleware');
 const { PERMISSIONS } = require('../config/permissions');
+const upload = require('../middleware/uploadMiddleware');
 
 router.route('/')
-    .post(protect, createOrder)
+    .post(protect, upload.single('file'), createOrder)
     .get(protect, getOrders);
 
 router.get('/recent', protect, getRecentOrders);
