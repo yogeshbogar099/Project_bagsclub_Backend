@@ -220,7 +220,14 @@ const createOrder = async (req, res) => {
             totalAmount: totalAmountNum,
             remark,
             status: 'Confirmed',
-            memberId: user.memberId
+            memberId: user.memberId,
+            trackingLog: [
+                {
+                    status: 'Confirmed',
+                    message: 'Order Booked',
+                    operator: user.name || 'System'
+                }
+            ]
         });
 
         res.status(201).json({ 

@@ -28,10 +28,16 @@ const orderSchema = mongoose.Schema({
     remark: { type: String },
     status: {
         type: String,
-        enum: ['Pending', 'Confirmed', 'Printing', 'Packaging', 'Dispatched', 'Completed'],
+        enum: ['Pending', 'Confirmed', 'Printing', 'Packaging', 'Dispatched', 'Completed', 'Cancelled'],
         default: 'Confirmed'
     },
-    memberId: { type: String }
+    memberId: { type: String },
+    trackingLog: [{
+        status: String,
+        message: String,
+        operator: String,
+        timestamp: { type: Date, default: Date.now }
+    }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);
